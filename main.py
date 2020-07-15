@@ -15,12 +15,13 @@ class params:
 
 
 class VAE(nn.Module):
-    def __init__(self, latent_dim):
+    def __init__(self, device, latent_dim):
         super(VAE, self).__init__()
+        self.device = device
         ksp = [3, 2, 1]  # kernel size, stride, padding
 
         self.encoder_conv = nn.Sequential(
-            nn.Conv2d(3, 32, *ksp),
+            nn.Conv2d(1, 32, *ksp),
             nn.BatchNorm2d(32),
             nn.ReLU(),
             nn.Conv2d(32, 32, *ksp),
@@ -29,11 +30,11 @@ class VAE(nn.Module):
         )
 
         self.decoder_conv = nn.Sequential(
-            nn.ConvTranspose2d(32, 32, *ksp),
+            nn.ConvTranspose2d(32, 32, 3, 2, 1, 1),
             nn.BatchNorm2d(32),
             nn.ReLU(),
-            nn.Conv2d(32, 3, *ksp),
-            nn.BatchNorm2d(3),
+            nn.ConvTranspose2d(32, 1, 3, 2, 1, 1),
+            nn.BatchNorm2d(1),
             nn.Sigmoid(),
         )
 
@@ -44,11 +45,12 @@ class VAE(nn.Module):
 
     def encode(self, x):
         conv_out = self.encoder_conv(x)
-        return self.fc1a(conv_out), self.fc1b(conv_out)
+        out = torch.flatten(conv_out, 1)
+        return self.fc1a(out), self.fc1b(out)
 
     def reparameterize(self, mu, logvar):
         std = torch.exp(0.5 * logvar)
-        eps = torch.randn_like(std)
+        eps = torch.randn_like(std, device=self.device)
 
         return mu + eps * std
 
@@ -64,9 +66,10 @@ class VAE(nn.Module):
 
 
 def criterion(recon_x, x, mu, logvar):
-    BCE = F.binary_cross_entropy(
-        recon_x.view(-1, 784), x.view(-1, 784), reduction="sum"
-    )
+    recon_x = recon_x.view(recon_x.size(0), 28 * 28)
+    x = x.view(x.size(0), 28 * 28)
+
+    BCE = F.binary_cross_entropy(recon_x, x, reduction="sum")
 
     KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
 
@@ -75,6 +78,7 @@ def criterion(recon_x, x, mu, logvar):
 
 is_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if is_cuda else "cpu")
+print(f"Running on {device}")
 
 kwargs = {"batch_size": params.batch_size}
 if is_cuda:
@@ -90,7 +94,7 @@ test_loader = torch.utils.data.DataLoader(test_set, **kwargs)
 
 metric_names = ["loss"]
 
-model = VAE(params.latent_dim)
+model = VAE(device, params.latent_dim)
 model.to(device)
 
 num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -117,6 +121,7 @@ for epoch in range(params.epochs):
         output, mu, logvar = model(data)
 
         loss = criterion(output, data, mu, logvar)
+
         loss.backward()
         optimizer.step()
 
