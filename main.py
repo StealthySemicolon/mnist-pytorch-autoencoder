@@ -14,6 +14,19 @@ class params:
     lr = 1e-4
 
 
+class Flatten(nn.Module):
+    def forward(self, x):
+        return torch.flatten(x, 1)
+
+
+class DeFlatten(nn.Module):
+    def __init__(self, out_size):
+        self.out_size = out_size
+
+    def forward(self, x):
+        return x.view(x.size(0), *self.out_size)
+
+
 class VAE(nn.Module):
     def __init__(self, device, latent_dim):
         super(VAE, self).__init__()
@@ -50,7 +63,7 @@ class VAE(nn.Module):
 
     def reparameterize(self, mu, logvar):
         std = torch.exp(0.5 * logvar)
-        eps = torch.randn_like(std, device=self.device)
+        eps = torch.randn(*std.size())
 
         return mu + eps * std
 
@@ -65,12 +78,10 @@ class VAE(nn.Module):
         return self.decode(z), mu, logvar
 
 
-def criterion(recon_x, x, mu, logvar):
-    recon_x = recon_x.view(recon_x.size(0), 28 * 28)
-    x = x.view(x.size(0), 28 * 28)
-
-    BCE = F.binary_cross_entropy(recon_x, x, reduction="sum")
-
+def loss_function(recon_x, x, mu, logvar):
+    BCE = F.binary_cross_entropy(
+        recon_x.view(-1, 784), x.view(-1, 784), reduction="sum"
+    )
     KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
 
     return BCE + KLD
@@ -120,7 +131,7 @@ for epoch in range(params.epochs):
         optimizer.zero_grad()
         output, mu, logvar = model(data)
 
-        loss = criterion(output, data, mu, logvar)
+        loss = loss_function(output, data, mu, logvar)
 
         loss.backward()
         optimizer.step()
@@ -138,7 +149,7 @@ for epoch in range(params.epochs):
             data = data.to(device)
             output, mu, logvar = model(data)
 
-            test_metrics[0] += criterion(output, data, mu, logvar).item()
+            test_metrics[0] += loss_function(output, data, mu, logvar).item()
 
     test_metrics = np.array(test_metrics) / len(test_loader)
     for name, val in zip(metric_names, test_metrics):
