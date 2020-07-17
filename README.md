@@ -1,2 +1,2 @@
 # mnist-pytorch-vae
-MNIST Variational Autoencoder in PyTorch
+MNIST Autoencoder in PyTorch
